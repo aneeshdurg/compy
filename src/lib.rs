@@ -1,41 +1,114 @@
 use std::env;
-use std::fs::read_dir;
-use std::path::Path;
+use std::fs::{read_dir, ReadDir};
 use is_executable::IsExecutable;
 
-// TODO write tests
-pub fn path_prefix_completion(prefix: &str) {
+pub struct PathDirIterator {
+    paths: String,
+    idx: usize,
+}
+
+impl Iterator for PathDirIterator {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        let startidx = self.idx;
+        match &self.paths.as_str()[startidx..].find(':') {
+            None => None,
+            Some(idx) => {
+                let endidx = idx + startidx;
+                self.idx = endidx + 1;
+                Some(String::from(&self.paths[startidx..endidx]))
+            }
+        }
+    }
+}
+
+fn path_dir_iterator() -> Option<PathDirIterator>{
     let path = env::var("PATH");
     if path.is_err() {
-        return;
+        return None;
     }
 
     let path = path.unwrap();
-    for p in path.split(":") {
-        if !Path::new(p).exists() {
-            continue;
-        }
+    Some(PathDirIterator { paths: path, idx: 0 })
+}
 
-        if let Ok(dir) = read_dir(&p) {
-            for entry in dir {
-                if entry.is_err() {
-                    continue;
+pub struct PathIterator {
+    paths: PathDirIterator,
+    dir: Option<ReadDir>,
+}
+
+impl PathIterator {
+    fn advance_path(&mut self) {
+        loop {
+            let path = self.paths.next();
+            match path {
+                None => {
+                    self.dir = None;
+                    break;
                 }
+                Some(p) => {
+                    if let Ok(dir) = read_dir(&p) {
+                        self.dir = Some(dir);
+                        break;
+                    }
 
-                let entry = entry.unwrap();
-                if !entry.path().is_executable() {
-                    continue
-                }
-
-                let name = entry.file_name().into_string().unwrap();
-                if name.starts_with(prefix) {
-                    println!("{}", name);
+                    // couldn't open dir, try the next path
                 }
             }
         }
     }
 }
 
-pub fn path_fuzzy_completion(_: &str) {
-    panic!("Unimplemented!");
+pub fn path_iterator() -> Option<PathIterator>{
+    let paths = path_dir_iterator();
+    match paths {
+        None => None,
+        Some(p) => Some(PathIterator {
+            paths: p,
+            dir: None,
+        })
+    }
+}
+
+impl Iterator for PathIterator {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        if let None = self.dir {
+            self.advance_path();
+        }
+
+        loop {
+            let entry = self.dir.as_mut().unwrap().next();
+            if let None = entry {
+                self.advance_path();
+                if let None = self.dir {
+                    return None;
+                }
+                continue;
+            }
+
+            let entry = entry.unwrap();
+            if entry.is_err() {
+                continue;
+            }
+
+            let entry = entry.unwrap();
+            if !entry.path().is_executable() {
+                continue;
+            }
+
+            return Some(entry.file_name().into_string().unwrap());
+        }
+    }
+}
+
+// TODO write tests
+pub fn path_prefix_completion(prefix: &str) {
+    for name in path_iterator().unwrap() {
+        if name.starts_with(prefix) {
+            println!("{}", name);
+        }
+    }
 }
