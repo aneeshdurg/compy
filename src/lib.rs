@@ -18,14 +18,18 @@ pub fn path_prefix_completion(prefix: &str) {
 
         if let Ok(dir) = read_dir(&p) {
             for entry in dir {
-                if let Ok(entry) = entry {
-                    if entry.path().is_executable() {
-                        if let Ok(name) = entry.file_name().into_string() {
-                            if name.starts_with(prefix) {
-                                println!("{}", name);
-                            }
-                        }
-                    }
+                if entry.is_err() {
+                    continue;
+                }
+
+                let entry = entry.unwrap();
+                if !entry.path().is_executable() {
+                    continue
+                }
+
+                let name = entry.file_name().into_string().unwrap();
+                if name.starts_with(prefix) {
+                    println!("{}", name);
                 }
             }
         }
