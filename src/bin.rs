@@ -7,9 +7,43 @@ use std::process;
 use compyrs;
 
 /**
- * compgen [-abcdefgjksuv] [-o option] [-A action] [-G globpat] [-W wordlist]
- * [-P prefix] [-S suffix] [-X filterpat] [-F function] [-C command] [word]
+ * compgen [-jksu] [-o option] [-W wordlist] [-F function] [-C command]
+ * The action may be one of the following to generate a list of possible completions:
+      hostname
+              Hostnames, as taken from the file specified by the HOSTFILE shell variable.
+      job     Job names, if job control is active.  May also be specified as -j.
+      keyword Shell reserved words.  May also be specified as -k.
+      running Names of running jobs, if job control is active.
+      service Service names.  May also be specified as -s.
+      signal  Signal names.
+      user    User names.  May also be specified as -u.
+
+      TODO:
+      + allow every completion to return two strings for optional data
+      + implement -p for searching (pids, cmds)
+      + add fuzzy completion mode
  */
+
+struct FilterParams<'a> {
+    filter: Option<glob::Pattern>,
+    keep_filter: bool,
+    prefix: &'a str,
+    suffix: &'a str,
+}
+
+fn filter_and_display(
+        completions: impl Iterator<Item=String>, params: &FilterParams) {
+    for entry in completions {
+        let mut keep_entry = true;
+        if let Some(f) = params.filter.as_ref() {
+            keep_entry = params.keep_filter == f.matches(&entry);
+        }
+
+        if keep_entry {
+            println!("{}{}{}", params.prefix, entry, params.suffix);
+        }
+    }
+}
 
 // TODO use a real arg parsing crate to match compgen's features
 pub fn main() {
@@ -17,15 +51,26 @@ pub fn main() {
         (version: "1.0")
         (author: "Aneesh Durg <aneeshdurg17@gmail.com>")
         (about: "Shell agnostic command completion")
-        (@arg command: -c --command "Search $PATH for completions")
+        (@arg search_commands: -c --search_commands
+            "Search $PATH for completions")
+        (@arg search_files: -f --search_files
+            "Search current working directory for file completions")
+        (@arg search_dirs: -d --search_dirs
+            "Search current working directory for directory completions")
+        (@arg search_env: -e --search_env
+            "Search ENVIRONMENT for completions")
+        (@arg search_groups: -g --search_groups
+            "Search groups for completions")
         (@arg prefix: -P --prefix
             +takes_value "Add prefix to results")
         (@arg suffix: -S --suffix
             +takes_value "Add prefix to results")
         (@arg filter: -X --filter
             +takes_value "Exclude results matching the supplied filter")
-        (@arg INPUT: "input to complete")
-    ).get_matches();
+        (@arg INPUT: "input to complete")).get_matches();
+
+    let prefix = matches.value_of("prefix").unwrap_or("");
+    let suffix = matches.value_of("suffix").unwrap_or("");
 
     let mut filter: Option<glob::Pattern> = None;
     let mut keep_filter = false;
@@ -45,22 +90,33 @@ pub fn main() {
         }
     }
 
+    let filter_params = FilterParams { filter, keep_filter, prefix, suffix };
+
     let input = matches.value_of("INPUT").unwrap_or("");
-    if matches.is_present("command") {
-        for p in compyrs::PathPrefixCompletion::new(input.to_string()) {
-            if let Some(f) = filter.as_ref() {
-                if keep_filter == f.matches(&p) {
-                    println!("{}", p);
-                }
-            } else {
-                println!("{}", p);
-            }
-        }
+    if matches.is_present("search_commands") {
+        filter_and_display(
+            compyrs::PathPrefixCompletion::new(input.to_string()),
+            &filter_params);
     }
 
-    // TODO:
-    // tests
-    // use glob::glob for -G
-    // add fuzzy completion mode
-    // rest of compgen flags
+    let search_files = matches.is_present("search_files");
+    let search_dirs = matches.is_present("search_dirs");
+    if search_files || search_dirs {
+        filter_and_display(
+            compyrs::DirPrefixCompletion::new(
+                input.to_string(), search_files, search_dirs).unwrap(),
+            &filter_params);
+    }
+
+    if matches.is_present("search_env") {
+        filter_and_display(
+            compyrs::EnvPrefixCompletion::new(input.to_string()),
+            &filter_params);
+    }
+
+    if matches.is_present("search_groups") {
+        filter_and_display(
+            compyrs::GroupPrefixCompletion::new(input.to_string()),
+            &filter_params);
+    }
 }
