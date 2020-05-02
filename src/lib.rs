@@ -104,11 +104,33 @@ impl Iterator for PathIterator {
     }
 }
 
-// TODO write tests
-pub fn path_prefix_completion(prefix: &str) {
-    for name in path_iterator().unwrap() {
-        if name.starts_with(prefix) {
-            println!("{}", name);
+pub struct PathPrefixCompletion {
+    exes: PathIterator,
+    prefix: String,
+}
+
+impl Iterator for PathPrefixCompletion {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        loop {
+            if let Some(name) = self.exes.next()  {
+                if name.starts_with(&self.prefix) {
+                    return Some(name);
+                }
+                continue;
+            }
+
+            return None;
+        }
+    }
+}
+
+impl PathPrefixCompletion {
+    pub fn new(prefix: String) -> PathPrefixCompletion {
+        PathPrefixCompletion {
+            exes: path_iterator().unwrap(),
+            prefix: prefix,
         }
     }
 }
