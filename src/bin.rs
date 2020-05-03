@@ -7,15 +7,13 @@ use std::process;
 use compyrs::*;
 
 /**
- * compgen
- * The action may be one of the following to generate a list of possible completions:
-      signal  Signal names.
-
-      TODO:
-      + allow every completion to return two strings for optional data
-      + implement -p for searching (pids, cmds)
-      + add fuzzy completion mode
- */
+* compgen
+* The action may be one of the following to generate a list of possible completions:
+*    TODO:
+*    + allow every completion to return two strings for optional data
+*    + implement -p for searching (pids, cmds)
+*    + add fuzzy completion mode
+*/
 
 pub fn main() {
     let matches = clap_app!(compy =>
@@ -59,19 +57,24 @@ pub fn main() {
 
     let input = matches.value_of("input").unwrap_or("");
 
-    let filter_params = FilterParams { filter, keep_filter, input, prepend, append };
+    let filter_params = FilterParams {
+        filter,
+        keep_filter,
+        input,
+        prepend,
+        append,
+    };
 
     if matches.is_present("search_commands") {
         filter_and_display(PathCompletion::new().unwrap(), &filter_params);
     }
 
-    // TODO enable prefix to control the directory that is searched:
-    //  a) if the prefix is a valid directory search that directory
-    //  b) else find the last / in the prefix and treat that as the directory ("" -> ".")
     let search_files = matches.is_present("search_files");
     let search_dirs = matches.is_present("search_dirs");
     if search_files || search_dirs {
-        filter_and_display(DirCompletion::new(search_files, search_dirs).unwrap(), &filter_params);
+        if let Some(completion) = DirCompletion::new(input, search_files, search_dirs) {
+            filter_and_display(completion, &filter_params);
+        }
     }
 
     if matches.is_present("search_env") {
@@ -95,6 +98,9 @@ pub fn main() {
     }
 
     if matches.is_present("wordlist") {
-        filter_and_display(WordListCompletion::new(matches.value_of("wordlist").unwrap()), &filter_params);
+        filter_and_display(
+            WordListCompletion::new(matches.value_of("wordlist").unwrap()),
+            &filter_params,
+        );
     }
 }

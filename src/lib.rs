@@ -1,14 +1,15 @@
 extern crate pgs_files;
 extern crate users;
 
-use std::collections::HashSet;
-use std::env;
-use std::fs::{read_dir, ReadDir};
 use hostfile::parse_hostfile;
 use is_executable::IsExecutable;
 use pgs_files::group;
-use users::{all_users, User};
 use servicefile::parse_servicefile;
+use std::collections::HashSet;
+use std::env;
+use std::path::{self, Path};
+use std::fs::{read_dir, ReadDir};
+use users::{all_users, User};
 
 pub struct FilterParams<'a> {
     pub filter: Option<glob::Pattern>,
@@ -18,8 +19,7 @@ pub struct FilterParams<'a> {
     pub append: &'a str,
 }
 
-pub fn filter_and_display(
-        completions: impl Iterator<Item=String>, params: &FilterParams) {
+pub fn filter_and_display(completions: impl Iterator<Item = String>, params: &FilterParams) {
     for entry in completions {
         if !entry.starts_with(params.input) {
             continue;
@@ -57,10 +57,13 @@ impl Iterator for PathDirIterator {
     }
 }
 
-fn path_dir_iterator() -> Option<PathDirIterator>{
+fn path_dir_iterator() -> Option<PathDirIterator> {
     let path = env::var("PATH");
     if let Ok(path) = path {
-        return Some(PathDirIterator { paths: path, idx: 0 });
+        return Some(PathDirIterator {
+            paths: path,
+            idx: 0,
+        });
     }
 
     None
@@ -133,9 +136,12 @@ impl Iterator for PathCompletion {
 }
 
 pub struct DirCompletion {
+    parent: String,
     dir: ReadDir,
     search_files: bool,
     search_dirs: bool,
+    displayed_parent: bool,
+    displayed_curr: bool,
 }
 
 impl Iterator for DirCompletion {
@@ -143,20 +149,31 @@ impl Iterator for DirCompletion {
 
     fn next(&mut self) -> Option<String> {
         loop {
-            if let Some(entry) = self.dir.next()  {
+            if (self.parent == "." || self.parent == "..") && self.search_dirs {
+                if !self.displayed_curr {
+                    self.displayed_curr = true;
+                    return Some(".".to_string());
+                } else if !self.displayed_parent {
+                    self.displayed_parent = true;
+                    return Some("..".to_string());
+                }
+            }
+
+            if let Some(entry) = self.dir.next() {
                 match entry {
-                    Err(_) => {},
+                    Err(_) => {}
                     Ok(entry) => {
                         let is_dir = match entry.metadata() {
-                            Ok(metadata) =>  metadata.is_dir(),
+                            Ok(metadata) => metadata.is_dir(),
                             _ => false,
                         };
 
-                        if (self.search_dirs && is_dir) ||
-                            (self.search_files && !is_dir) {
-                            let name =
-                                entry.file_name().into_string().unwrap();
-                            return Some(name);
+                        if (self.search_dirs && is_dir) || (self.search_files && !is_dir) {
+                            let name = entry.file_name().into_string().unwrap();
+                            if self.parent == "." || self.parent == ".." {
+                                return Some(name);
+                            }
+                            return Some(Path::new(&self.parent).join(name).to_str().unwrap().to_string());
                         }
                     }
                 }
@@ -170,12 +187,45 @@ impl Iterator for DirCompletion {
 }
 
 impl DirCompletion {
-    pub fn new(search_files: bool, search_dirs: bool) -> Option<DirCompletion> {
-        if let Ok(dir) = read_dir(".") {
+    pub fn new(input: &str, search_files: bool, search_dirs: bool) -> Option<DirCompletion> {
+        let parent = {
+            let mut p = Path::new(".");
+            if input.len() != 0 {
+                p = Path::new(input);
+                if path::is_separator(input.chars().last().unwrap()) {
+                    if !p.exists() || !p.is_dir() {
+                        return None;
+                    }
+                } else {
+                    p = p.parent().unwrap_or(Path::new("."));
+                    if p.to_str().unwrap().len() == 0 {
+                        p = Path::new(".");
+                    }
+
+                    if !p.exists() || !p.is_dir() {
+                        return None;
+                    }
+                }
+            }
+            p
+        };
+
+        let mut parent_path = parent.to_str().unwrap();
+        if input == ".." {
+            parent_path = "..";
+        } if !input.starts_with(parent_path) {
+            parent_path = "";
+        }
+        eprintln!("Using parent_path: {} for path {:?}", parent_path, parent);
+
+        if let Ok(dir) = read_dir(parent) {
             Some(DirCompletion {
+                parent: parent_path.to_string(),
                 dir,
                 search_files,
                 search_dirs,
+                displayed_parent: false,
+                displayed_curr: false,
             })
         } else {
             None
@@ -197,9 +247,7 @@ impl Iterator for EnvCompletion {
 
 impl EnvCompletion {
     pub fn new() -> EnvCompletion {
-        EnvCompletion {
-            vars: env::vars(),
-        }
+        EnvCompletion { vars: env::vars() }
     }
 }
 
@@ -274,7 +322,7 @@ impl HostCompletion {
     }
 }
 
-pub struct ServiceCompletion{
+pub struct ServiceCompletion {
     _inner: VecCompletion<String>,
 }
 
@@ -296,7 +344,7 @@ impl ServiceCompletion {
         }
 
         ServiceCompletion {
-            _inner: VecCompletion::<String> { elements, idx: 0 }
+            _inner: VecCompletion::<String> { elements, idx: 0 },
         }
     }
 }
@@ -330,10 +378,9 @@ pub struct WordListCompletion {
 
 impl WordListCompletion {
     pub fn new(wordlist: &str) -> WordListCompletion {
-        let elements =
-            wordlist.split_whitespace().map(|s| s.to_string()).collect();
+        let elements = wordlist.split_whitespace().map(|s| s.to_string()).collect();
         WordListCompletion {
-            _inner: VecCompletion::<String> { elements, idx: 0 }
+            _inner: VecCompletion::<String> { elements, idx: 0 },
         }
     }
 }
