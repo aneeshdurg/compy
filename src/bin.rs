@@ -7,10 +7,9 @@ use std::process;
 use compyrs::*;
 
 /**
- * compgen [-u]
+ * compgen
  * The action may be one of the following to generate a list of possible completions:
       signal  Signal names.
-      user    User names.  May also be specified as -u.
 
       TODO:
       + allow every completion to return two strings for optional data
@@ -18,35 +17,24 @@ use compyrs::*;
       + add fuzzy completion mode
  */
 
-// TODO use a real arg parsing crate to match compgen's features
 pub fn main() {
     let matches = clap_app!(compy =>
         (version: "1.0")
         (author: "Aneesh Durg <aneeshdurg17@gmail.com>")
         (about: "Shell agnostic command completion")
-        (@arg search_commands: -c --search_commands
-            "Search $PATH for completions")
-        (@arg search_dirs: -d --search_dirs
-            "Search current working directory for directory completions")
-        (@arg search_env: -e --search_env
-            "Search ENVIRONMENT for completions")
-        (@arg search_files: -f --search_files
-            "Search current working directory for file completions")
-        (@arg search_groups: -g --search_groups
-            "Search groups for completions")
-        (@arg search_hosts: -h --search_hosts
-            "Search hostnames in /etc/hosts for completions")
-        (@arg search_services: -s --search_services
-            "Search services in /etc/services for completions")
-        (@arg prefix: -P --prefix
-            +takes_value "Add prefix to results")
-        (@arg suffix: -S --suffix
-            +takes_value "Add prefix to results")
-        (@arg wordlist: -W --wordlist +takes_value
-            "A space separated list of words to use as possible completions")
-        (@arg filter: -X --filter
-            +takes_value "Exclude results matching the supplied filter")
-        (@arg INPUT: "input to complete")).get_matches();
+        (@arg search_commands: -c --search_commands "Search $PATH for completions")
+        (@arg search_dirs: -d --search_dirs "Search current working directory for directory completions")
+        (@arg search_env: -e --search_env "Search ENVIRONMENT for completions")
+        (@arg search_files: -f --search_files "Search current working directory for file completions")
+        (@arg search_groups: -g --search_groups "Search groups for completions")
+        (@arg search_hosts: -h --search_hosts "Search hostnames in /etc/hosts for completions")
+        (@arg search_services: -s --search_services "Search services in /etc/services for completions")
+        (@arg search_users: -u --search_users "Search usernames for completions")
+        (@arg prefix: -P --prefix +takes_value "Add prefix to results")
+        (@arg suffix: -S --suffix +takes_value "Add prefix to results")
+        (@arg wordlist: -W --wordlist +takes_value "A space separated list of words to use as possible completions")
+        (@arg filter: -X --filter +takes_value "Exclude results matching the supplied filter")
+        (@arg input: "input to complete")).get_matches();
 
     let prepend = matches.value_of("prefix").unwrap_or("");
     let append = matches.value_of("suffix").unwrap_or("");
@@ -69,7 +57,7 @@ pub fn main() {
         }
     }
 
-    let input = matches.value_of("INPUT").unwrap_or("");
+    let input = matches.value_of("input").unwrap_or("");
 
     let filter_params = FilterParams { filter, keep_filter, input, prepend, append };
 
@@ -77,6 +65,9 @@ pub fn main() {
         filter_and_display(PathCompletion::new().unwrap(), &filter_params);
     }
 
+    // TODO enable prefix to control the directory that is searched:
+    //  a) if the prefix is a valid directory search that directory
+    //  b) else find the last / in the prefix and treat that as the directory ("" -> ".")
     let search_files = matches.is_present("search_files");
     let search_dirs = matches.is_present("search_dirs");
     if search_files || search_dirs {
@@ -93,6 +84,10 @@ pub fn main() {
 
     if matches.is_present("search_hosts") {
         filter_and_display(HostCompletion::new(), &filter_params);
+    }
+
+    if matches.is_present("search_users") {
+        filter_and_display(UserCompletion::new(), &filter_params);
     }
 
     if matches.is_present("search_services") {

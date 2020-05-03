@@ -1,4 +1,5 @@
 extern crate pgs_files;
+extern crate users;
 
 use std::collections::HashSet;
 use std::env;
@@ -6,6 +7,7 @@ use std::fs::{read_dir, ReadDir};
 use hostfile::parse_hostfile;
 use is_executable::IsExecutable;
 use pgs_files::group;
+use users::{all_users, User};
 use servicefile::parse_servicefile;
 
 pub struct FilterParams<'a> {
@@ -304,6 +306,21 @@ impl Iterator for ServiceCompletion {
 
     fn next(&mut self) -> Option<String> {
         self._inner.next()
+    }
+}
+
+impl Stringify for User {
+    fn get_string(&self) -> String {
+        self.name().to_str().unwrap().to_string()
+    }
+}
+
+pub type UserCompletion = VecCompletion<User>;
+
+impl UserCompletion {
+    pub fn new() -> UserCompletion {
+        let elements = unsafe { all_users() }.collect();
+        UserCompletion { elements, idx: 0 }
     }
 }
 

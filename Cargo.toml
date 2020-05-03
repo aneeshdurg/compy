@@ -13,6 +13,7 @@ hostfile = "0.2.0"
 is_executable = "0.1.2"
 pgs-files = "0.0.7"
 servicefile = "0.3.0"
+users = "0.10.0"
 
 [lib]
 name = "compyrs"
