@@ -1,9 +1,12 @@
 extern crate pgs_files;
 
+use std::collections::HashSet;
 use std::env;
 use std::fs::{read_dir, ReadDir};
+use hostfile::parse_hostfile;
 use is_executable::IsExecutable;
 use pgs_files::group;
+use servicefile::parse_servicefile;
 
 pub struct PathDirIterator {
     paths: String,
@@ -28,7 +31,7 @@ impl Iterator for PathDirIterator {
 
 fn path_dir_iterator() -> Option<PathDirIterator>{
     let path = env::var("PATH");
-    if path.is_err() { return None; } 
+    if path.is_err() { return None; }
     let path = path.unwrap();
     Some(PathDirIterator { paths: path, idx: 0 })
 }
@@ -225,37 +228,112 @@ impl EnvPrefixCompletion {
     }
 }
 
-pub struct GroupPrefixCompletion {
-    groups: Vec<group::GroupEntry>,
+pub trait Stringify {
+    fn get_string(&self) -> String;
+}
+
+pub struct VecPrefixCompletion<T: Stringify> {
+    elements: Vec<T>,
     idx: usize,
     prefix: String,
 }
 
+impl<T: Stringify> Iterator for VecPrefixCompletion<T> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        loop {
+            if self.idx >= self.elements.len() {
+                return None;
+            }
+
+            let element = &self.elements[self.idx].get_string();
+            self.idx += 1;
+
+            if element.starts_with(&self.prefix) {
+                return Some(element.to_string());
+            }
+        }
+    }
+}
+
+impl Stringify for group::GroupEntry {
+    fn get_string(&self) -> String {
+        self.name.to_string()
+    }
+}
+
+pub type GroupPrefixCompletion = VecPrefixCompletion<group::GroupEntry>;
+
 impl GroupPrefixCompletion {
     pub fn new(prefix: String) -> GroupPrefixCompletion {
         GroupPrefixCompletion {
-            groups: group::get_all_entries(),
+            elements: group::get_all_entries(),
             idx: 0,
             prefix,
         }
     }
 }
 
-impl Iterator for GroupPrefixCompletion {
+impl Stringify for String {
+    fn get_string(&self) -> String {
+        return self.to_string();
+    }
+}
+
+pub type HostPrefixCompletion = VecPrefixCompletion<String>;
+
+impl HostPrefixCompletion {
+    pub fn new(prefix: String) -> HostPrefixCompletion {
+        let mut hosts = HashSet::new();
+
+        let host_entries = parse_hostfile().unwrap();
+        for host_entry in host_entries {
+            for name in host_entry.names {
+                hosts.insert(name);
+            }
+        }
+
+        let mut elements = Vec::new();
+        for host in hosts {
+            elements.push(host.to_string());
+        }
+
+        HostPrefixCompletion { elements, idx: 0, prefix }
+    }
+}
+
+pub struct ServicePrefixCompletion{
+    _inner: VecPrefixCompletion<String>,
+}
+
+impl ServicePrefixCompletion {
+    pub fn new(prefix: String) -> ServicePrefixCompletion {
+        let mut services = HashSet::new();
+
+        let service_entries = parse_servicefile(true).unwrap();
+        for service_entry in service_entries {
+            services.insert(service_entry.name);
+            for alias in service_entry.aliases {
+                services.insert(alias);
+            }
+        }
+
+        let mut elements = Vec::new();
+        for service in services {
+            elements.push(service.to_string());
+        }
+
+        ServicePrefixCompletion {
+            _inner: VecPrefixCompletion::<String> { elements, idx: 0, prefix }
+        }
+    }
+}
+
+impl Iterator for ServicePrefixCompletion {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        loop {
-            if self.idx >= self.groups.len() {
-                return None;
-            }
-
-            let group = &self.groups[self.idx].name;
-            self.idx += 1;
-
-            if group.starts_with(&self.prefix) {
-                return Some(group.to_string());
-            }
-        }
+        self._inner.next()
     }
 }

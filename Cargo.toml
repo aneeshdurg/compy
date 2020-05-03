@@ -9,8 +9,10 @@ edition = "2018"
 [dependencies]
 clap = "2.33.0"
 glob = "0.3.0"
+hostfile = "0.2.0"
 is_executable = "0.1.2"
 pgs-files = "0.0.7"
+servicefile = "0.3.0"
 
 [lib]
 name = "compyrs"

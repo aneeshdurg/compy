@@ -7,14 +7,8 @@ use std::process;
 use compyrs;
 
 /**
- * compgen [-jksu] [-o option] [-W wordlist] [-F function] [-C command]
+ * compgen [-u] [-o option] [-W wordlist] [-F function] [-C command]
  * The action may be one of the following to generate a list of possible completions:
-      hostname
-              Hostnames, as taken from the file specified by the HOSTFILE shell variable.
-      job     Job names, if job control is active.  May also be specified as -j.
-      keyword Shell reserved words.  May also be specified as -k.
-      running Names of running jobs, if job control is active.
-      service Service names.  May also be specified as -s.
       signal  Signal names.
       user    User names.  May also be specified as -u.
 
@@ -53,14 +47,18 @@ pub fn main() {
         (about: "Shell agnostic command completion")
         (@arg search_commands: -c --search_commands
             "Search $PATH for completions")
-        (@arg search_files: -f --search_files
-            "Search current working directory for file completions")
         (@arg search_dirs: -d --search_dirs
             "Search current working directory for directory completions")
         (@arg search_env: -e --search_env
             "Search ENVIRONMENT for completions")
+        (@arg search_files: -f --search_files
+            "Search current working directory for file completions")
         (@arg search_groups: -g --search_groups
             "Search groups for completions")
+        (@arg search_hosts: -h --search_hosts
+            "Search hostnames in /etc/hosts for completions")
+        (@arg search_services: -s --search_services
+            "Search services in /etc/services for completions")
         (@arg prefix: -P --prefix
             +takes_value "Add prefix to results")
         (@arg suffix: -S --suffix
@@ -119,4 +117,17 @@ pub fn main() {
             compyrs::GroupPrefixCompletion::new(input.to_string()),
             &filter_params);
     }
+
+    if matches.is_present("search_hosts") {
+        filter_and_display(
+            compyrs::HostPrefixCompletion::new(input.to_string()),
+            &filter_params);
+    }
+
+    if matches.is_present("search_services") {
+        filter_and_display(
+            compyrs::ServicePrefixCompletion::new(input.to_string()),
+            &filter_params);
+    }
+
 }
