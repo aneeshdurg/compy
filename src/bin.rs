@@ -4,10 +4,10 @@ extern crate glob;
 
 use std::process;
 
-use compyrs;
+use compyrs::*;
 
 /**
- * compgen [-u] [-o option] [-W wordlist] [-F function] [-C command]
+ * compgen [-u]
  * The action may be one of the following to generate a list of possible completions:
       signal  Signal names.
       user    User names.  May also be specified as -u.
@@ -17,27 +17,6 @@ use compyrs;
       + implement -p for searching (pids, cmds)
       + add fuzzy completion mode
  */
-
-struct FilterParams<'a> {
-    filter: Option<glob::Pattern>,
-    keep_filter: bool,
-    prefix: &'a str,
-    suffix: &'a str,
-}
-
-fn filter_and_display(
-        completions: impl Iterator<Item=String>, params: &FilterParams) {
-    for entry in completions {
-        let mut keep_entry = true;
-        if let Some(f) = params.filter.as_ref() {
-            keep_entry = params.keep_filter == f.matches(&entry);
-        }
-
-        if keep_entry {
-            println!("{}{}{}", params.prefix, entry, params.suffix);
-        }
-    }
-}
 
 // TODO use a real arg parsing crate to match compgen's features
 pub fn main() {
@@ -63,12 +42,14 @@ pub fn main() {
             +takes_value "Add prefix to results")
         (@arg suffix: -S --suffix
             +takes_value "Add prefix to results")
+        (@arg wordlist: -W --wordlist +takes_value
+            "A space separated list of words to use as possible completions")
         (@arg filter: -X --filter
             +takes_value "Exclude results matching the supplied filter")
         (@arg INPUT: "input to complete")).get_matches();
 
-    let prefix = matches.value_of("prefix").unwrap_or("");
-    let suffix = matches.value_of("suffix").unwrap_or("");
+    let prepend = matches.value_of("prefix").unwrap_or("");
+    let append = matches.value_of("suffix").unwrap_or("");
 
     let mut filter: Option<glob::Pattern> = None;
     let mut keep_filter = false;
@@ -88,46 +69,37 @@ pub fn main() {
         }
     }
 
-    let filter_params = FilterParams { filter, keep_filter, prefix, suffix };
-
     let input = matches.value_of("INPUT").unwrap_or("");
+
+    let filter_params = FilterParams { filter, keep_filter, input, prepend, append };
+
     if matches.is_present("search_commands") {
-        filter_and_display(
-            compyrs::PathPrefixCompletion::new(input.to_string()),
-            &filter_params);
+        filter_and_display(PathCompletion::new().unwrap(), &filter_params);
     }
 
     let search_files = matches.is_present("search_files");
     let search_dirs = matches.is_present("search_dirs");
     if search_files || search_dirs {
-        filter_and_display(
-            compyrs::DirPrefixCompletion::new(
-                input.to_string(), search_files, search_dirs).unwrap(),
-            &filter_params);
+        filter_and_display(DirCompletion::new(search_files, search_dirs).unwrap(), &filter_params);
     }
 
     if matches.is_present("search_env") {
-        filter_and_display(
-            compyrs::EnvPrefixCompletion::new(input.to_string()),
-            &filter_params);
+        filter_and_display(EnvCompletion::new(), &filter_params);
     }
 
     if matches.is_present("search_groups") {
-        filter_and_display(
-            compyrs::GroupPrefixCompletion::new(input.to_string()),
-            &filter_params);
+        filter_and_display(GroupCompletion::new(), &filter_params);
     }
 
     if matches.is_present("search_hosts") {
-        filter_and_display(
-            compyrs::HostPrefixCompletion::new(input.to_string()),
-            &filter_params);
+        filter_and_display(HostCompletion::new(), &filter_params);
     }
 
     if matches.is_present("search_services") {
-        filter_and_display(
-            compyrs::ServicePrefixCompletion::new(input.to_string()),
-            &filter_params);
+        filter_and_display(ServiceCompletion::new(), &filter_params);
     }
 
+    if matches.is_present("wordlist") {
+        filter_and_display(WordListCompletion::new(matches.value_of("wordlist").unwrap()), &filter_params);
+    }
 }

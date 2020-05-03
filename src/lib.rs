@@ -8,6 +8,32 @@ use is_executable::IsExecutable;
 use pgs_files::group;
 use servicefile::parse_servicefile;
 
+pub struct FilterParams<'a> {
+    pub filter: Option<glob::Pattern>,
+    pub keep_filter: bool,
+    pub input: &'a str,
+    pub prepend: &'a str,
+    pub append: &'a str,
+}
+
+pub fn filter_and_display(
+        completions: impl Iterator<Item=String>, params: &FilterParams) {
+    for entry in completions {
+        if !entry.starts_with(params.input) {
+            continue;
+        }
+
+        let mut keep_entry = true;
+        if let Some(f) = params.filter.as_ref() {
+            keep_entry = params.keep_filter == f.matches(&entry);
+        }
+
+        if keep_entry {
+            println!("{}{}{}", params.prepend, entry, params.append);
+        }
+    }
+}
+
 pub struct PathDirIterator {
     paths: String,
     idx: usize,
@@ -31,17 +57,26 @@ impl Iterator for PathDirIterator {
 
 fn path_dir_iterator() -> Option<PathDirIterator>{
     let path = env::var("PATH");
-    if path.is_err() { return None; }
-    let path = path.unwrap();
-    Some(PathDirIterator { paths: path, idx: 0 })
+    if let Ok(path) = path {
+        return Some(PathDirIterator { paths: path, idx: 0 });
+    }
+
+    None
 }
 
-pub struct PathIterator {
+pub struct PathCompletion {
     paths: PathDirIterator,
     dir: Option<ReadDir>,
 }
 
-impl PathIterator {
+impl PathCompletion {
+    pub fn new() -> Option<PathCompletion> {
+        match path_dir_iterator() {
+            Some(paths) => Some(PathCompletion { paths, dir: None }),
+            None => None,
+        }
+    }
+
     fn advance_path(&mut self) {
         loop {
             let path = self.paths.next();
@@ -63,18 +98,7 @@ impl PathIterator {
     }
 }
 
-pub fn path_iterator() -> Option<PathIterator>{
-    let paths = path_dir_iterator();
-    match paths {
-        None => None,
-        Some(p) => Some(PathIterator {
-            paths: p,
-            dir: None,
-        })
-    }
-}
-
-impl Iterator for PathIterator {
+impl Iterator for PathCompletion {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -92,12 +116,11 @@ impl Iterator for PathIterator {
                 continue;
             }
 
-            let entry = entry.unwrap();
-            if entry.is_err() {
-                continue;
-            }
+            let entry = match entry {
+                Some(Ok(entry)) => entry,
+                _ => continue,
+            };
 
-            let entry = entry.unwrap();
             if !entry.path().is_executable() {
                 continue;
             }
@@ -107,65 +130,30 @@ impl Iterator for PathIterator {
     }
 }
 
-pub struct PathPrefixCompletion {
-    exes: PathIterator,
-    prefix: String,
-}
-
-impl Iterator for PathPrefixCompletion {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        loop {
-            if let Some(name) = self.exes.next()  {
-                if name.starts_with(&self.prefix) {
-                    return Some(name);
-                }
-                continue;
-            }
-
-            return None;
-        }
-    }
-}
-
-impl PathPrefixCompletion {
-    pub fn new(prefix: String) -> PathPrefixCompletion {
-        PathPrefixCompletion {
-            exes: path_iterator().unwrap(),
-            prefix: prefix,
-        }
-    }
-}
-
-pub struct DirPrefixCompletion {
+pub struct DirCompletion {
     dir: ReadDir,
-    prefix: String,
     search_files: bool,
     search_dirs: bool,
 }
 
-impl Iterator for DirPrefixCompletion {
+impl Iterator for DirCompletion {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
         loop {
             if let Some(entry) = self.dir.next()  {
-                if !entry.is_err() {
-                    let entry = entry.unwrap();
-                    let is_dir = {
-                        let mut is_dir = false;
-                        if let Ok(metadata) = entry.metadata() {
-                            is_dir = metadata.is_dir()
-                        }
+                match entry {
+                    Err(_) => {},
+                    Ok(entry) => {
+                        let is_dir = match entry.metadata() {
+                            Ok(metadata) =>  metadata.is_dir(),
+                            _ => false,
+                        };
 
-                        is_dir
-                    };
-                    if (self.search_dirs && is_dir) ||
+                        if (self.search_dirs && is_dir) ||
                             (self.search_files && !is_dir) {
-                        let name =
-                            entry.file_name().into_string().unwrap();
-                        if name.starts_with(&self.prefix) {
+                            let name =
+                                entry.file_name().into_string().unwrap();
                             return Some(name);
                         }
                     }
@@ -179,14 +167,11 @@ impl Iterator for DirPrefixCompletion {
     }
 }
 
-impl DirPrefixCompletion {
-    pub fn new(
-        prefix: String, search_files: bool, search_dirs: bool
-    ) -> Option<DirPrefixCompletion> {
+impl DirCompletion {
+    pub fn new(search_files: bool, search_dirs: bool) -> Option<DirCompletion> {
         if let Ok(dir) = read_dir(".") {
-            Some(DirPrefixCompletion {
+            Some(DirCompletion {
                 dir,
-                prefix,
                 search_files,
                 search_dirs,
             })
@@ -196,34 +181,22 @@ impl DirPrefixCompletion {
     }
 }
 
-pub struct EnvPrefixCompletion {
+pub struct EnvCompletion {
     vars: env::Vars,
-    prefix: String,
 }
 
-impl Iterator for EnvPrefixCompletion {
+impl Iterator for EnvCompletion {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        loop {
-            if let Some(v) = self.vars.next()  {
-                if v.0.starts_with(&self.prefix) {
-                    return Some(v.0);
-                }
-
-                continue;
-            }
-
-            return None;
-        }
+        self.vars.next().map(|v| v.0)
     }
 }
 
-impl EnvPrefixCompletion {
-    pub fn new(prefix: String) -> EnvPrefixCompletion {
-        EnvPrefixCompletion {
+impl EnvCompletion {
+    pub fn new() -> EnvCompletion {
+        EnvCompletion {
             vars: env::vars(),
-            prefix,
         }
     }
 }
@@ -232,13 +205,12 @@ pub trait Stringify {
     fn get_string(&self) -> String;
 }
 
-pub struct VecPrefixCompletion<T: Stringify> {
+pub struct VecCompletion<T: Stringify> {
     elements: Vec<T>,
     idx: usize,
-    prefix: String,
 }
 
-impl<T: Stringify> Iterator for VecPrefixCompletion<T> {
+impl<T: Stringify> Iterator for VecCompletion<T> {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
@@ -250,9 +222,7 @@ impl<T: Stringify> Iterator for VecPrefixCompletion<T> {
             let element = &self.elements[self.idx].get_string();
             self.idx += 1;
 
-            if element.starts_with(&self.prefix) {
-                return Some(element.to_string());
-            }
+            return Some(element.to_string());
         }
     }
 }
@@ -263,14 +233,13 @@ impl Stringify for group::GroupEntry {
     }
 }
 
-pub type GroupPrefixCompletion = VecPrefixCompletion<group::GroupEntry>;
+pub type GroupCompletion = VecCompletion<group::GroupEntry>;
 
-impl GroupPrefixCompletion {
-    pub fn new(prefix: String) -> GroupPrefixCompletion {
-        GroupPrefixCompletion {
+impl GroupCompletion {
+    pub fn new() -> GroupCompletion {
+        GroupCompletion {
             elements: group::get_all_entries(),
             idx: 0,
-            prefix,
         }
     }
 }
@@ -281,10 +250,10 @@ impl Stringify for String {
     }
 }
 
-pub type HostPrefixCompletion = VecPrefixCompletion<String>;
+pub type HostCompletion = VecCompletion<String>;
 
-impl HostPrefixCompletion {
-    pub fn new(prefix: String) -> HostPrefixCompletion {
+impl HostCompletion {
+    pub fn new() -> HostCompletion {
         let mut hosts = HashSet::new();
 
         let host_entries = parse_hostfile().unwrap();
@@ -299,16 +268,16 @@ impl HostPrefixCompletion {
             elements.push(host.to_string());
         }
 
-        HostPrefixCompletion { elements, idx: 0, prefix }
+        HostCompletion { elements, idx: 0 }
     }
 }
 
-pub struct ServicePrefixCompletion{
-    _inner: VecPrefixCompletion<String>,
+pub struct ServiceCompletion{
+    _inner: VecCompletion<String>,
 }
 
-impl ServicePrefixCompletion {
-    pub fn new(prefix: String) -> ServicePrefixCompletion {
+impl ServiceCompletion {
+    pub fn new() -> ServiceCompletion {
         let mut services = HashSet::new();
 
         let service_entries = parse_servicefile(true).unwrap();
@@ -324,13 +293,35 @@ impl ServicePrefixCompletion {
             elements.push(service.to_string());
         }
 
-        ServicePrefixCompletion {
-            _inner: VecPrefixCompletion::<String> { elements, idx: 0, prefix }
+        ServiceCompletion {
+            _inner: VecCompletion::<String> { elements, idx: 0 }
         }
     }
 }
 
-impl Iterator for ServicePrefixCompletion {
+impl Iterator for ServiceCompletion {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        self._inner.next()
+    }
+}
+
+pub struct WordListCompletion {
+    _inner: VecCompletion<String>,
+}
+
+impl WordListCompletion {
+    pub fn new(wordlist: &str) -> WordListCompletion {
+        let elements =
+            wordlist.split_whitespace().map(|s| s.to_string()).collect();
+        WordListCompletion {
+            _inner: VecCompletion::<String> { elements, idx: 0 }
+        }
+    }
+}
+
+impl Iterator for WordListCompletion {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
