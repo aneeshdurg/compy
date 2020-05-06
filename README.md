@@ -1,4 +1,7 @@
 # Compy - Shell agnostic command completion
+![Rust](https://github.com/aneeshdurg/compy/workflows/Rust/badge.svg)
+[![](http://meritbadge.herokuapp.com/compy)](https://crates.io/crates/compy)
+[![Docs](https://docs.rs/compy/badge.svg)](https://docs.rs/compy)
 
 ## A rust implementation of Bash's compgen
 
